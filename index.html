@@ -32,7 +32,7 @@ canvas{display:block;max-width:100%;height:auto}
 </head>
 <body>
 <h1>Aqua Slider</h1>
-<div class="description">水流で常に下へ流されます。←→で移動し、一定間隔で噴き上がるジェット水流の塊に乗って上昇。左上から右下のゴール（緑の星）へ！</div>
+<div class="description">水流で常に下へ流されます。←→で移動、一定間隔で噴き上がるジェットに乗って爽快！</div>
 <div class="controls"><button onclick="initGame()">迷路を再生成</button><button onclick="restart()">やり直し (R)</button></div>
 <div id="game-container">
   <canvas id="c"></canvas>
@@ -44,7 +44,6 @@ canvas{display:block;max-width:100%;height:auto}
   <h3 id="drag">Settings<button id="hide" title="非表示">✕</button></h3>
   <label>落下速度<input type="range" id="sFlow" min="0.5" max="5" step="0.1" value="1.6"><output></output></label>
   <label>ジェット間隔(秒)<input type="range" id="sInt" min="0.5" max="18" step="0.1" value="5"><output></output></label>
-  <!-- ▼ 水流の長さスライダーの最小値を2に変更し、不完全な形になるのを防止 ▼ -->
   <label>水流の長さ(マス)<input type="range" id="sLen" min="2" max="20" step="1" value="5"><output></output></label>
   <label>ジェットの色(色相)<input type="range" id="sHue" min="0" max="360" step="1" value="195"><output></output></label>
   <label>ジェットの明るさ<input type="range" id="sBri" min="0.2" max="2" step="0.1" value="1"><output></output></label>
@@ -58,7 +57,8 @@ let PL=2,JH=195,JB=1;
 const BASE=3.5,FLOW0=1.6,JETMAX=10;
 const COLS=21,ROWS=21,S=28,HW=0.3,HH=0.3;
 let maze,jet,p,cleared,last,raf,t=0;
-const keys={left:false,right:false};
+const keys={left:false,right:false,jump:false};
+let grounded=false;
 const rnd=n=>Math.floor(Math.random()*n);
 const goal={x:COLS-2,y:ROWS-2};
 
@@ -189,14 +189,31 @@ function step(dt){
     else if(!blocked(nx,p.y-.2)){p.x=nx;p.y-=.2;}
     else p.vx=0;
   }
+  
   let target=FLOW;
   if(j){
     if(hz)target=Math.max(-sp,Math.min(sp,(cy+.5-p.y)*8));
     else target=(R.dy<0&&R.last&&p.y<cy+.4)?FLOW:R.dy*sp;
   }
-  p.vy+=(target-p.vy)*Math.min(1,(j?12:6)*dt);
+
+  // おまけ要素：極小ジャンプの処理（段差は超えられない非常に小さな初速）
+  if(keys.jump&&(grounded||j)){
+    p.vy=-3.0; // 水流の落下に少し逆らう程度の僅かなジャンプ力
+    grounded=false;
+  }else{
+    p.vy+=(target-p.vy)*Math.min(1,(j?12:6)*dt);
+  }
+
   const ny=p.y+p.vy*dt;
-  if(!blocked(p.x,ny))p.y=ny;else p.vy=0;
+  if(!blocked(p.x,ny)){
+    p.y=ny;
+    grounded=false;
+  }else{
+    // 下にぶつかった（着地した）場合
+    if(p.vy>0)grounded=true;
+    p.vy=0;
+  }
+
   if(Math.hypot(p.x-(goal.x+.5),p.y-(goal.y+.5))<.5){cleared=true;setTimeout(()=>msg.style.display='flex',300);}
 }
 
@@ -305,7 +322,7 @@ function loop(ts){
   raf=requestAnimationFrame(loop);
 }
 function restart(){
-  p={x:1.5,y:1.5,vx:0,vy:0};cleared=false;msg.style.display='none';
+  p={x:1.5,y:1.5,vx:0,vy:0};cleared=false;msg.style.display='none';grounded=false;
   for(const g of segs){g.pulses=[];g.tm=1e9;}
   if(!running){running=true;last=performance.now();raf=requestAnimationFrame(loop);}
 }
@@ -316,12 +333,25 @@ function initGame(){
 }
 const map={ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};
 addEventListener('keydown',e=>{
-  if(map[e.key]){keys[map[e.key]]=true;e.preventDefault();}
-  else if(e.key==='Enter'&&cleared){e.preventDefault();initGame();}
-  else if(e.key==='r'||e.key==='R')restart();
-  else if(e.key.startsWith('Arrow'))e.preventDefault();
+  if(map[e.key]){
+    keys[map[e.key]]=true;
+    e.preventDefault();
+  }else if(e.key===' '||e.key==='Space'||e.code==='Space'){
+    keys.jump=true;
+    e.preventDefault();
+  }else if(e.key==='Enter'&&cleared){
+    e.preventDefault();
+    initGame();
+  }else if(e.key==='r'||e.key==='R'){
+    restart();
+  }else if(e.key.startsWith('Arrow')){
+    e.preventDefault();
+  }
 });
-addEventListener('keyup',e=>{if(map[e.key])keys[map[e.key]]=false;});
+addEventListener('keyup',e=>{
+  if(map[e.key])keys[map[e.key]]=false;
+  else if(e.key===' '||e.key==='Space'||e.code==='Space')keys.jump=false;
+});
 [['bl','left'],['br','right']].forEach(([id,k])=>{
   const b=document.getElementById(id);
   b.addEventListener('pointerdown',e=>{keys[k]=true;e.preventDefault();});
