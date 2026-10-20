@@ -52,7 +52,7 @@ canvas{display:block;max-width:100%;height:auto}
 
 <script>
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false}),msg=document.getElementById('clear-message');
-let FLOW=1.6,JET=-4.2,INT=2.0,segs=[];
+let FLOW=1.6,JET=-4.2,INT=5.0,segs=[];
 let PL=2,JH=195,JB=1;
 const BASE=3.5,FLOW0=1.6,JETMAX=10;
 const COLS=21,ROWS=21,S=28,HW=0.3,HH=0.3;
@@ -196,9 +196,8 @@ function step(dt){
     else target=(R.dy<0&&R.last&&p.y<cy+.4)?FLOW:R.dy*sp;
   }
 
-  // おまけ要素：極小ジャンプの処理（段差は超えられない非常に小さな初速）
   if(keys.jump&&(grounded||j)){
-    p.vy=-3.0; // 水流の落下に少し逆らう程度の僅かなジャンプ力
+    p.vy=-3.0;
     grounded=false;
   }else{
     p.vy+=(target-p.vy)*Math.min(1,(j?12:6)*dt);
@@ -209,7 +208,6 @@ function step(dt){
     p.y=ny;
     grounded=false;
   }else{
-    // 下にぶつかった（着地した）場合
     if(p.vy>0)grounded=true;
     p.vy=0;
   }
@@ -357,13 +355,31 @@ addEventListener('keyup',e=>{
   b.addEventListener('pointerdown',e=>{keys[k]=true;e.preventDefault();});
   ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=false));
 });
+
+// スライダーの設定処理（ジェット間隔は右に動かすほど短くなるように変換: 0.5〜18を反転）
 [['sFlow',v=>FLOW=v,1],['sInt',v=>INT=v,1],['sLen',v=>PL=v,0],['sHue',v=>JH=v,0],['sBri',v=>JB=v,1],['sJet',v=>JET=-v,1]].forEach(([id,fn,digits])=>{
   const el=document.getElementById(id),out=el.nextElementSibling;
-  const apply=()=>{fn(parseFloat(el.value));out.textContent=parseFloat(el.value).toFixed(digits);};
+  const apply=()=>{
+    const val=parseFloat(el.value);
+    if(id==='sInt'){
+      const inverted = 18.5 - val; // 右にいくほど小さくなる（0.5→18, 18→0.5, デフォルト5→13.5の代わりにデフォルトの挙動に合わせるため初期値も考慮）
+      fn(inverted);
+      out.textContent=inverted.toFixed(digits);
+    }else{
+      fn(val);
+      out.textContent=val.toFixed(digits);
+    }
+  };
   el.addEventListener('input',apply);
   el.addEventListener('change',()=>el.blur());
+  
+  // ジェット間隔のデフォルト値を初期コード通りの5秒にするための初期調整
+  if(id==='sInt'){
+    el.value = 18.5 - 5; // 初期値5秒になるようにスライダー位置を調整
+  }
   apply();
 });
+
 const panel=document.querySelector('.sliders'),dh=document.getElementById('drag');
 let drag=null;
 const clampP=(x,y)=>[Math.max(0,Math.min(innerWidth-panel.offsetWidth,x)),Math.max(0,Math.min(innerHeight-panel.offsetHeight,y))];
