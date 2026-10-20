@@ -26,7 +26,7 @@ canvas{display:block;max-width:100%;height:auto}
 .sliders input:hover{opacity:1}
 .sliders input::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--glow);box-shadow:0 0 10px var(--glow);cursor:pointer}
 .sliders input::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--glow);box-shadow:0 0 10px var(--glow);cursor:pointer}
-.sliders h3{display:flex;justify-content:space-between;align-items:center;cursor:grab;touch-action:none}.sliders h3 button{padding:0 8px;font-size:.85rem;line-height:1.5;border-color:rgba(0,210,255,.4)}.sliders.hidden{display:none}.fab{display:none;position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));z-index:20;width:48px;height:48px;padding:0;font-size:1.4rem;border-radius:50%;background:rgba(8,16,30,.85);box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 15px rgba(0,136,255,.25)}
+.sliders h3{display:flex;justify-space:between;align-items:center;cursor:grab;touch-action:none}.sliders h3 button{padding:0 8px;font-size:.85rem;line-height:1.5;border-color:rgba(0,210,255,.4)}.sliders.hidden{display:none}.fab{display:none;position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));z-index:20;width:48px;height:48px;padding:0;font-size:1.4rem;border-radius:50%;background:rgba(8,16,30,.85);box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 15px rgba(0,136,255,.25)}
 .pad button{width:96px;height:56px;font-size:1.6rem;padding:0}
 </style>
 </head>
@@ -57,8 +57,13 @@ let PL=2,JH=195,JB=1;
 const BASE=3.5,FLOW0=1.6,JETMAX=10;
 const COLS=21,ROWS=21,S=28,HW=0.3,HH=0.3;
 let maze,jet,p,cleared,last,raf,t=0;
-const keys={left:false,right:false,jump:false};
+const keys={left:false,right:false,up:false,down:false,jump:false};
 let grounded=false;
+let breakTimer=0;
+let particles=[];
+let gameOver=false;
+let breakCount=0;
+
 const rnd=n=>Math.floor(Math.random()*n);
 const goal={x:COLS-2,y:ROWS-2};
 
@@ -123,7 +128,7 @@ function buildPath(s){
       ax=cells[i-1][0]+.5;ay=cells[i-1][1]+.5;UA=u;dx=ddx;dy=ddy;
     }
   }
-  pcs.push({ax,ay,UA,UB:cells.length,dx,dy});
+  pcs.push({ax,ay,UA,UB:cells.length,dy});
   s.pieces=pcs;
   s.arcs=[];
   for(let j=0;j<pcs.length-1;j++){
@@ -170,7 +175,49 @@ function blocked(x,y){
 }
 const isJet=(c,r)=>!!(jet[r]&&jet[r][c]);
 
+function spawnBreakParticles(bx, by) {
+  const wx = (bx + 0.5) * S;
+  const wy = (by + 0.5) * S;
+  for (let i = 0; i < 8; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.5 + Math.random() * 1.5;
+    particles.push({x: wx,y: wy,vx: Math.cos(angle) * speed,vy: Math.sin(angle) * speed,alpha: 1.0,decay: 0.05 + Math.random() * 0.04,size: 1 + Math.random() * 1.5,color: '#64d2ff'});
+  }
+}
+
+function spawnExplosionParticles() {
+  const px = p.x * S;
+  const py = p.y * S;
+  // 1.5倍の大きさのエフェクト（粒子数12個、速度・サイズを1.5倍スケール）
+  for (let i = 0; i < 12; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = (0.5 + Math.random() * 1.5) * 1.5;
+    particles.push({
+      x: px,
+      y: py,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      alpha: 1.0,
+      decay: 0.03 + Math.random() * 0.03,
+      size: (1 + Math.random() * 1.5) * 2.25,
+      color: Math.random() < 0.5 ? "#ffaa00" : "#ff3300"
+    });
+  }
+}
+
 function step(dt){
+  // ゲームオーバーかつ2回目破壊済みの場合は自機処理をスキップしてパーティクルの更新のみ行う
+  if(gameOver && breakCount >= 2){
+    for(let i = particles.length - 1; i >= 0; i--){
+      const pt = particles[i];
+      pt.x += pt.vx;
+      pt.y += pt.vy;
+      pt.alpha -= pt.decay;
+      if(pt.alpha <= 0) particles.splice(i, 1);
+    }
+    return;
+  }
+
   const dir=(keys.right?1:0)-(keys.left?1:0);
   const cx=Math.floor(p.x),cy=Math.floor(p.y),R=riding(),j=!!R,hz=j&&R.dx!==0,sp=-JET;
   const inConn=cy%2===0&&cx%2===1&&!solid(cx,cy);
@@ -210,6 +257,65 @@ function step(dt){
   }else{
     if(p.vy>0)grounded=true;
     p.vy=0;
+  }
+
+  if(p.x < 0 || p.x >= COLS || p.y < 0 || p.y >= ROWS){
+    gameOver = true;
+    return;
+  }
+
+  let activeDir = null;
+  if(keys.down) activeDir = {dx: 0, dy: 1};
+  else if(keys.up) activeDir = {dx: 0, dy: -1};
+  else if(keys.left) activeDir = {dx: -1, dy: 0};
+  else if(keys.right) activeDir = {dx: 1, dy: 0};
+
+  if(activeDir){
+    const targetX = Math.floor(p.x + activeDir.dx * HW * 1.5);
+    const targetY = Math.floor(p.y + activeDir.dy * HH * 1.5);
+    
+    const isOut = targetX < 0 || targetX >= COLS || targetY < 0 || targetY >= ROWS;
+    const isValidTarget = isOut || solid(targetX, targetY);
+
+    if(isValidTarget){
+      breakTimer += dt;
+      if(breakTimer >= 0.4){
+        breakCount++;
+        if(breakCount === 1){
+          if(!isOut){
+            maze[targetY][targetX] = 0;
+            spawnBreakParticles(targetX, targetY);
+            buildBg();
+          } else {
+            spawnBreakParticles(Math.floor(p.x), Math.floor(p.y));
+          }
+        } else if(breakCount >= 2){
+          // 2回目を試みた場合：自機が爆発（1.5倍）とともに消滅
+          spawnExplosionParticles();
+          gameOver = true;
+          keys.left=false;
+          keys.right=false;
+          keys.up=false;
+          keys.down=false;
+          keys.jump=false;
+          breakTimer = 0;
+          return;
+        }
+        breakTimer = 0;
+      }
+    } else {
+      breakTimer = 0;
+    }
+  } else {
+    breakTimer = 0;
+  }
+
+  for(let i = particles.length - 1; i >= 0; i--){
+    const pt = particles[i];
+    pt.x += pt.vx;
+    pt.y += pt.vy;
+    pt.alpha -= pt.decay;
+    if(pt.alpha <= 0) particles.splice(i, 1);
   }
 
   if(Math.hypot(p.x-(goal.x+.5),p.y-(goal.y+.5))<.5){cleared=true;setTimeout(()=>msg.style.display='flex',300);}
@@ -306,21 +412,55 @@ function draw(){
   }
   ctx.stroke();
   drawPulses();
+
+  for(const pt of particles){
+    ctx.fillStyle=pt.color || `rgba(100, 210, 255, ${pt.alpha})`;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   ctx.shadowBlur=14+5*Math.sin(t*4);ctx.shadowColor='#00e676';ctx.fillStyle='#00e676';
   star((goal.x+.5)*S,(goal.y+.5)*S,S*.42,t*1.2);ctx.fill();
-  ctx.shadowBlur=15;ctx.shadowColor='#ffaa00';ctx.fillStyle='#ffea00';
-  ctx.beginPath();ctx.roundRect((p.x-HW)*S,(p.y-HH)*S,2*HW*S,2*HH*S,5);ctx.fill();
+  
+  // 2回目破壊による爆発消滅の際は自機を描画しない
+  if(!gameOver || breakCount < 2){
+    ctx.shadowBlur=15;ctx.shadowColor='#ffaa00';ctx.fillStyle='#ffea00';
+    const px = p.x * S;
+    const py = p.y * S;
+    const halfW = HW * S;
+    const halfH = HH * S;
+
+    if(breakCount === 0){
+      ctx.beginPath();
+      ctx.roundRect(px - halfW, py - halfH, 2 * halfW, 2 * halfH, 5);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      const r = 4;
+      ctx.moveTo(px, py - halfH + r);
+      ctx.arcTo(px + halfW, py + halfH, px - halfW, py + halfH, r);
+      ctx.arcTo(px - halfW, py + halfH, px, py - halfH, r);
+      ctx.arcTo(px, py - halfH, px + halfW, py + halfH, r);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
   ctx.shadowBlur=0;
 }
 function loop(ts){
   const dt=Math.min(.033,(ts-last)/1000||0);last=ts;t+=dt;
-  if(!cleared){updJets(dt);step(dt);}
+  if(!cleared){
+    updJets(dt);
+    step(dt);
+  }
   draw();
   if(cleared){running=false;return;}
   raf=requestAnimationFrame(loop);
 }
 function restart(){
-  p={x:1.5,y:1.5,vx:0,vy:0};cleared=false;msg.style.display='none';grounded=false;
+  p={x:1.5,y:1.5,vx:0,vy:0};cleared=false;gameOver=false;breakCount=0;msg.style.display='none';grounded=false;
+  breakTimer=0; particles=[];
   for(const g of segs){g.pulses=[];g.tm=1e9;}
   if(!running){running=true;last=performance.now();raf=requestAnimationFrame(loop);}
 }
@@ -329,8 +469,9 @@ function initGame(){
   canvas.width=COLS*S;canvas.height=ROWS*S;
   generate();buildBg();restart();
 }
-const map={ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};
+const map={ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right',ArrowUp:'up','w':'up','W':'up',ArrowDown:'down','s':'down','S':'down'};
 addEventListener('keydown',e=>{
+  if(gameOver) return;
   if(map[e.key]){
     keys[map[e.key]]=true;
     e.preventDefault();
@@ -352,17 +493,16 @@ addEventListener('keyup',e=>{
 });
 [['bl','left'],['br','right']].forEach(([id,k])=>{
   const b=document.getElementById(id);
-  b.addEventListener('pointerdown',e=>{keys[k]=true;e.preventDefault();});
+  b.addEventListener('pointerdown',e=>{if(gameOver)return; keys[k]=true;e.preventDefault();});
   ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=false));
 });
 
-// スライダーの設定処理（ジェット間隔は右に動かすほど短くなるように変換: 0.5〜18を反転）
 [['sFlow',v=>FLOW=v,1],['sInt',v=>INT=v,1],['sLen',v=>PL=v,0],['sHue',v=>JH=v,0],['sBri',v=>JB=v,1],['sJet',v=>JET=-v,1]].forEach(([id,fn,digits])=>{
   const el=document.getElementById(id),out=el.nextElementSibling;
   const apply=()=>{
     const val=parseFloat(el.value);
     if(id==='sInt'){
-      const inverted = 18.5 - val; // 右にいくほど小さくなる（0.5→18, 18→0.5, デフォルト5→13.5の代わりにデフォルトの挙動に合わせるため初期値も考慮）
+      const inverted = 18.5 - val;
       fn(inverted);
       out.textContent=inverted.toFixed(digits);
     }else{
@@ -373,9 +513,8 @@ addEventListener('keyup',e=>{
   el.addEventListener('input',apply);
   el.addEventListener('change',()=>el.blur());
   
-  // ジェット間隔のデフォルト値を初期コード通りの5秒にするための初期調整
   if(id==='sInt'){
-    el.value = 18.5 - 5; // 初期値5秒になるようにスライダー位置を調整
+    el.value = 18.5 - 5;
   }
   apply();
 });
