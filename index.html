@@ -142,7 +142,7 @@ function updJets(dt){
     s.tm+=dt;if(s.tm>=INT){s.tm=0;s.pulses.push({d:0});}
     for(const w of s.pulses)w.d+=-JET*dt;
     const L=lmax(s);
-    s.pulses=s.pulses.filter(w=>w.d-PL<L);
+    while(s.pulses.length&&s.pulses[0].d-PL>=L)s.pulses.shift();
   }
 }
 function riding(){
@@ -173,7 +173,6 @@ function blocked(x,y){
   for(const dx of[-HW,HW])for(const dy of[-HH,HH])if(solid(Math.floor(x+dx),Math.floor(y+dy)))return true;
   return false;
 }
-const isJet=(c,r)=>!!(jet[r]&&jet[r][c]);
 
 function spawnBreakParticles(bx, by) {
   const wx = (bx + 0.5) * S;
@@ -190,7 +189,7 @@ function spawnExplosionParticles() {
   const py = p.y * S;
   for (let i = 0; i < 12; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const speed = (0.5 + Math.random() * 1.5) * 1.5;
+    const speed = (0.5 + Math.random() * 1.5) * 1.125;
     particles.push({
       x: px,
       y: py,
@@ -198,21 +197,25 @@ function spawnExplosionParticles() {
       vy: Math.sin(angle) * speed,
       alpha: 1.0,
       decay: 0.03 + Math.random() * 0.03,
-      size: (1 + Math.random() * 1.5) * 2.25,
+      size: (1 + Math.random() * 1.5) * 1.6875,
       color: Math.random() < 0.5 ? "#ffaa00" : "#ff3300"
     });
   }
 }
 
+function updParticles(){
+  let n=0;
+  for(let i=0;i<particles.length;i++){
+    const pt=particles[i];
+    pt.x+=pt.vx;pt.y+=pt.vy;pt.alpha-=pt.decay;
+    if(pt.alpha>0)particles[n++]=pt;
+  }
+  particles.length=n;
+}
+
 function step(dt){
   if(gameOver && breakCount >= 2){
-    for(let i = particles.length - 1; i >= 0; i--){
-      const pt = particles[i];
-      pt.x += pt.vx;
-      pt.y += pt.vy;
-      pt.alpha -= pt.decay;
-      if(pt.alpha <= 0) particles.splice(i, 1);
-    }
+    updParticles();
     return;
   }
 
@@ -263,12 +266,9 @@ function step(dt){
   }
 
   // 下以外の壁破壊をなくすため、keys.down のみが破壊対象になるよう変更
-  let activeDir = null;
-  if(keys.down) activeDir = {dx: 0, dy: 1};
-
-  if(activeDir){
-    const targetX = Math.floor(p.x + activeDir.dx * HW * 1.5);
-    const targetY = Math.floor(p.y + activeDir.dy * HH * 1.5);
+  if(keys.down){
+    const targetX = Math.floor(p.x);
+    const targetY = Math.floor(p.y + HH * 1.5);
     
     const isOut = targetX < 0 || targetX >= COLS || targetY < 0 || targetY >= ROWS;
     const isValidTarget = isOut || solid(targetX, targetY);
@@ -305,15 +305,10 @@ function step(dt){
     breakTimer = 0;
   }
 
-  for(let i = particles.length - 1; i >= 0; i--){
-    const pt = particles[i];
-    pt.x += pt.vx;
-    pt.y += pt.vy;
-    pt.alpha -= pt.decay;
-    if(pt.alpha <= 0) particles.splice(i, 1);
-  }
+  updParticles();
 
-  if(Math.hypot(p.x-(goal.x+.5),p.y-(goal.y+.5))<.5){cleared=true;setTimeout(()=>msg.style.display='flex',300);}
+  const gx=p.x-(goal.x+.5),gy=p.y-(goal.y+.5);
+  if(gx*gx+gy*gy<.25){cleared=true;setTimeout(()=>msg.style.display='flex',300);}
 }
 
 function star(cx,cy,R,rot){
@@ -323,8 +318,8 @@ function star(cx,cy,R,rot){
 }
 let bg,floorCells=[],running=false;
 function buildBg(){
-  bg=document.createElement('canvas');bg.width=COLS*S;bg.height=ROWS*S;
-  const g=bg.getContext('2d');floorCells=[];
+  if(!bg){bg=document.createElement('canvas');bg.width=COLS*S;bg.height=ROWS*S;}
+  const g=bg.getContext('2d');g.clearRect(0,0,bg.width,bg.height);floorCells=[];
   for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
     const x=c*S,y=r*S;
     if(maze[r][c]){
@@ -408,12 +403,16 @@ function draw(){
   ctx.stroke();
   drawPulses();
 
+  let pc=null;
   for(const pt of particles){
-    ctx.fillStyle=pt.color || `rgba(100, 210, 255, ${pt.alpha})`;
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
-    ctx.fill();
+    if(pt.color!==pc){
+      if(pc!==null)ctx.fill();
+      ctx.fillStyle=pc=pt.color;ctx.beginPath();
+    }
+    ctx.moveTo(pt.x+pt.size,pt.y);
+    ctx.arc(pt.x,pt.y,pt.size,0,Math.PI*2);
   }
+  if(pc!==null)ctx.fill();
 
   ctx.shadowBlur=14+5*Math.sin(t*4);ctx.shadowColor='#00e676';ctx.fillStyle='#00e676';
   star((goal.x+.5)*S,(goal.y+.5)*S,S*.42,t*1.2);ctx.fill();
