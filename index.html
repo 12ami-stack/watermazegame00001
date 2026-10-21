@@ -128,7 +128,7 @@ function buildPath(s){
       ax=cells[i-1][0]+.5;ay=cells[i-1][1]+.5;UA=u;dx=ddx;dy=ddy;
     }
   }
-  pcs.push({ax,ay,UA,UB:cells.length,dy});
+  pcs.push({ax,ay,UA,UB:cells.length,dx,dy});
   s.pieces=pcs;
   s.arcs=[];
   for(let j=0;j<pcs.length-1;j++){
