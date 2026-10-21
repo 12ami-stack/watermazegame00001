@@ -188,7 +188,6 @@ function spawnBreakParticles(bx, by) {
 function spawnExplosionParticles() {
   const px = p.x * S;
   const py = p.y * S;
-  // 1.5倍の大きさのエフェクト（粒子数12個、速度・サイズを1.5倍スケール）
   for (let i = 0; i < 12; i++) {
     const angle = Math.random() * Math.PI * 2;
     const speed = (0.5 + Math.random() * 1.5) * 1.5;
@@ -206,7 +205,6 @@ function spawnExplosionParticles() {
 }
 
 function step(dt){
-  // ゲームオーバーかつ2回目破壊済みの場合は自機処理をスキップしてパーティクルの更新のみ行う
   if(gameOver && breakCount >= 2){
     for(let i = particles.length - 1; i >= 0; i--){
       const pt = particles[i];
@@ -264,11 +262,9 @@ function step(dt){
     return;
   }
 
+  // 下以外の壁破壊をなくすため、keys.down のみが破壊対象になるよう変更
   let activeDir = null;
   if(keys.down) activeDir = {dx: 0, dy: 1};
-  else if(keys.up) activeDir = {dx: 0, dy: -1};
-  else if(keys.left) activeDir = {dx: -1, dy: 0};
-  else if(keys.right) activeDir = {dx: 1, dy: 0};
 
   if(activeDir){
     const targetX = Math.floor(p.x + activeDir.dx * HW * 1.5);
@@ -290,7 +286,6 @@ function step(dt){
             spawnBreakParticles(Math.floor(p.x), Math.floor(p.y));
           }
         } else if(breakCount >= 2){
-          // 2回目を試みた場合：自機が爆発（1.5倍）とともに消滅
           spawnExplosionParticles();
           gameOver = true;
           keys.left=false;
@@ -423,7 +418,6 @@ function draw(){
   ctx.shadowBlur=14+5*Math.sin(t*4);ctx.shadowColor='#00e676';ctx.fillStyle='#00e676';
   star((goal.x+.5)*S,(goal.y+.5)*S,S*.42,t*1.2);ctx.fill();
   
-  // 2回目破壊による爆発消滅の際は自機を描画しない
   if(!gameOver || breakCount < 2){
     ctx.shadowBlur=15;ctx.shadowColor='#ffaa00';ctx.fillStyle='#ffea00';
     const px = p.x * S;
