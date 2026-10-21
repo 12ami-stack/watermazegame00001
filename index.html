@@ -28,6 +28,7 @@ canvas{display:block;max-width:100%;height:auto}
 .sliders input::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--glow);box-shadow:0 0 10px var(--glow);cursor:pointer}
 .sliders h3{display:flex;justify-space:between;align-items:center;cursor:grab;touch-action:none}.sliders h3 button{padding:0 8px;font-size:.85rem;line-height:1.5;border-color:rgba(0,210,255,.4)}.sliders.hidden{display:none}.fab{display:none;position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));z-index:20;width:48px;height:48px;padding:0;font-size:1.4rem;border-radius:50%;background:rgba(8,16,30,.85);box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 15px rgba(0,136,255,.25)}
 .pad button{width:96px;height:56px;font-size:1.6rem;padding:0}
+#fall{position:fixed;left:0;top:0;width:auto;height:auto;max-width:none;pointer-events:none;z-index:15}
 </style>
 </head>
 <body>
@@ -39,6 +40,7 @@ canvas{display:block;max-width:100%;height:auto}
   <div id="clear-message"><h2>STAGE CLEAR!</h2><button onclick="initGame()">次へ挑戦</button></div>
 </div>
 <div class="pad"><button id="bl">◀</button><button id="br">▶</button></div>
+<canvas id="fall"></canvas>
 <button id="fab" class="fab" title="設定パネルを表示">⚙</button>
 <div class="sliders">
   <h3 id="drag">Settings<button id="hide" title="非表示">✕</button></h3>
@@ -168,7 +170,7 @@ function riding(){
   return null;
 }
 
-const solid=(c,r)=>c<0||r<0||c>=COLS||r>=ROWS||maze[r][c]===1;
+const solid=(c,r)=>c<0||r<0||c>=COLS||(r<ROWS&&maze[r][c]===1);
 function blocked(x,y){
   for(const dx of[-HW,HW])for(const dy of[-HH,HH])if(solid(Math.floor(x+dx),Math.floor(y+dy)))return true;
   return false;
@@ -213,13 +215,18 @@ function updParticles(){
   particles.length=n;
 }
 
+function fallOutY(){
+  const r=canvas.getBoundingClientRect();
+  return (innerHeight-r.top)/(r.width/canvas.width*S)+1;
+}
+
 function step(dt){
   if(gameOver && breakCount >= 2){
     updParticles();
     return;
   }
 
-  const dir=(keys.right?1:0)-(keys.left?1:0);
+  const dir=p.y>=ROWS?0:(keys.right?1:0)-(keys.left?1:0);
   const cx=Math.floor(p.x),cy=Math.floor(p.y),R=riding(),j=!!R,hz=j&&R.dx!==0,sp=-JET;
   const inConn=cy%2===0&&cx%2===1&&!solid(cx,cy);
   if(inConn||(j&&!hz&&(dir===0||sp>=JETMAX))){
@@ -247,6 +254,8 @@ function step(dt){
   if(keys.jump&&(grounded||j)){
     p.vy=-3.0;
     grounded=false;
+  }else if(p.y>=ROWS){
+    p.vy+=FALL_G*dt;
   }else{
     p.vy+=(target-p.vy)*Math.min(1,(j?12:6)*dt);
   }
@@ -260,7 +269,7 @@ function step(dt){
     p.vy=0;
   }
 
-  if(p.x < 0 || p.x >= COLS || p.y < 0 || p.y >= ROWS){
+  if(p.x < 0 || p.x >= COLS || p.y < 0 || (p.y >= ROWS + 1 && p.y >= fallOutY())){
     gameOver = true;
     return;
   }
@@ -270,7 +279,7 @@ function step(dt){
     const targetX = Math.floor(p.x);
     const targetY = Math.floor(p.y + HH * 1.5);
     
-    const isOut = targetX < 0 || targetX >= COLS || targetY < 0 || targetY >= ROWS;
+    const isOut = targetX < 0 || targetX >= COLS || targetY < 0;
     const isValidTarget = isOut || solid(targetX, targetY);
 
     if(isValidTarget){
@@ -387,6 +396,24 @@ function drawPulses(){
   }
   ctx.strokeStyle=`rgba(255,255,255,${Math.min(1,.6*JB)})`;ctx.lineWidth=2;ctx.stroke(ln);
 }
+const FALL_Y=ROWS-1,FALL_G=1;
+const fallCv=document.getElementById('fall'),fctx=fallCv.getContext('2d');
+let fallDirty=false;
+function drawShip(g,px,py,k){
+  const hw=HW*S*k,hh=HH*S*k;
+  g.shadowBlur=15*k;g.shadowColor='#ffaa00';g.fillStyle='#ffea00';
+  g.beginPath();
+  if(breakCount===0)g.roundRect(px-hw,py-hh,2*hw,2*hh,5*k);
+  else{
+    const r=4*k;
+    g.moveTo(px,py-hh+r);
+    g.arcTo(px+hw,py+hh,px-hw,py+hh,r);
+    g.arcTo(px-hw,py+hh,px,py-hh,r);
+    g.arcTo(px,py-hh,px+hw,py+hh,r);
+    g.closePath();
+  }
+  g.fill();
+}
 function draw(){
   ctx.drawImage(bg,0,0);
   ctx.fillStyle=`hsla(${JH},100%,50%,${Math.min(1,.07*JB)})`;ctx.beginPath();
@@ -417,28 +444,19 @@ function draw(){
   ctx.shadowBlur=14+5*Math.sin(t*4);ctx.shadowColor='#00e676';ctx.fillStyle='#00e676';
   star((goal.x+.5)*S,(goal.y+.5)*S,S*.42,t*1.2);ctx.fill();
   
+  let falling=false;
   if(!gameOver || breakCount < 2){
-    ctx.shadowBlur=15;ctx.shadowColor='#ffaa00';ctx.fillStyle='#ffea00';
-    const px = p.x * S;
-    const py = p.y * S;
-    const halfW = HW * S;
-    const halfH = HH * S;
-
-    if(breakCount === 0){
-      ctx.beginPath();
-      ctx.roundRect(px - halfW, py - halfH, 2 * halfW, 2 * halfH, 5);
-      ctx.fill();
-    } else {
-      ctx.beginPath();
-      const r = 4;
-      ctx.moveTo(px, py - halfH + r);
-      ctx.arcTo(px + halfW, py + halfH, px - halfW, py + halfH, r);
-      ctx.arcTo(px - halfW, py + halfH, px, py - halfH, r);
-      ctx.arcTo(px, py - halfH, px + halfW, py + halfH, r);
-      ctx.closePath();
-      ctx.fill();
+    if(p.y<FALL_Y)drawShip(ctx,p.x*S,p.y*S,1);
+    else{
+      falling=true;
+      const r=canvas.getBoundingClientRect(),k=r.width/canvas.width;
+      if(fallCv.width!==innerWidth||fallCv.height!==innerHeight){fallCv.width=innerWidth;fallCv.height=innerHeight;}
+      else fctx.clearRect(0,0,fallCv.width,fallCv.height);
+      drawShip(fctx,r.left+p.x*S*k,r.top+p.y*S*k,k);
+      fctx.shadowBlur=0;fallDirty=true;
     }
   }
+  if(!falling&&fallDirty){fctx.clearRect(0,0,fallCv.width,fallCv.height);fallDirty=false;}
   ctx.shadowBlur=0;
 }
 function loop(ts){
